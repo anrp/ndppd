@@ -35,7 +35,7 @@ public:
     static ptr<proxy> open(const std::string& ifn);
 
     void handle_solicit(const address& saddr, const address& daddr,
-        const address& taddr);
+        const address& taddr, const hwaddress& raddr);
 
     void remove_session(const ptr<session>& se);
 

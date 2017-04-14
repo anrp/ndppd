@@ -30,6 +30,7 @@
 #include "logger.h"
 #include "conf.h"
 #include "address.h"
+#include "hwaddress.h"
 
 #include "iface.h"
 #include "proxy.h"

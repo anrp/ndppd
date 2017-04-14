@@ -21,7 +21,9 @@
 #include <map>
 
 #include <sys/poll.h>
+#include <sys/socket.h>
 #include <net/ethernet.h>
+#include <netpacket/packet.h>
 
 #include "ndppd.h"
 
@@ -50,10 +52,10 @@ public:
     ssize_t write_solicit(const address& taddr);
 
     // Writes a NB_NEIGHBOR_ADVERT message to the _ifd socket;
-    ssize_t write_advert(const address& daddr, const address& taddr, bool router);
+    ssize_t write_advert(const address& daddr, const address& taddr, bool router, const hwaddress& raddr);
 
     // Reads a NB_NEIGHBOR_SOLICIT message from the _pfd socket.
-    ssize_t read_solicit(address& saddr, address& daddr, address& taddr);
+    ssize_t read_solicit(address& saddr, address& daddr, address& taddr, hwaddress& raddr);
 
     // Reads a NB_NEIGHBOR_ADVERT message from the _ifd socket;
     ssize_t read_advert(address& saddr, address& taddr);
@@ -89,6 +91,12 @@ private:
     // The "generic" ICMPv6 socket for reading/writing NB_NEIGHBOR_ADVERT
     // messages as well as writing NB_NEIGHBOR_SOLICIT messages.
     int _ifd;
+
+    // Raw socket for NB advert with source IP
+    int _rfd;
+
+    // Sending address
+    struct sockaddr_ll _rsrc;
 
     // This is the PF_PACKET socket we use in order to read
     // NB_NEIGHBOR_SOLICIT messages.

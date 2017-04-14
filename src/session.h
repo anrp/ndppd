@@ -31,6 +31,7 @@ private:
     weak_ptr<proxy> _pr;
 
     address _saddr, _daddr, _taddr;
+    hwaddress _raddr;
 
     // An array of interfaces this session is monitoring for
     // ND_NEIGHBOR_ADVERT on.
@@ -58,7 +59,7 @@ public:
     ~session();
 
     static ptr<session> create(const ptr<proxy>& pr, const address& saddr,
-        const address& daddr, const address& taddr);
+        const address& daddr, const address& taddr, const hwaddress& raddr);
 
     void add_iface(const ptr<iface>& ifa);
 

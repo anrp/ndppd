@@ -61,7 +61,7 @@ ptr<proxy> proxy::open(const std::string& ifname)
 }
 
 void proxy::handle_solicit(const address& saddr, const address& daddr,
-    const address& taddr)
+    const address& taddr, const hwaddress &raddr)
 {
     logger::debug()
         << "proxy::handle_solicit() saddr=" << saddr.to_string()
@@ -104,7 +104,7 @@ void proxy::handle_solicit(const address& saddr, const address& daddr,
 
         if (ru->addr() == taddr) {
             if (!se) {
-                se = session::create(_ptr, saddr, daddr, taddr);
+                se = session::create(_ptr, saddr, daddr, taddr, raddr);
             }
 
             if (ru->is_auto()) {

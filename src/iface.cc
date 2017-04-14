@@ -41,6 +41,8 @@
 
 #include "ndppd.h"
 
+#include "checksum.h"
+
 NDPPD_NS_BEGIN
 
 std::map<std::string, weak_ptr<iface> > iface::_map;
@@ -73,7 +75,7 @@ iface::~iface()
 
 ptr<iface> iface::open_pfd(const std::string& name)
 {
-    int fd = 0;
+    int fd = 0, rfd = 0;
 
     std::map<std::string, weak_ptr<iface> >::iterator it = _map.find(name);
 
@@ -97,6 +99,11 @@ ptr<iface> iface::open_pfd(const std::string& name)
     if ((fd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_IPV6))) < 0) {
         logger::error() << "Unable to create socket";
         return ptr<iface>();
+    }
+
+    if ((rfd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) < 0) {
+	logger::error() << "Unable to create raw socket";
+	return ptr<iface>();
     }
 
     // Bind to the specified interface.
@@ -166,6 +173,9 @@ ptr<iface> iface::open_pfd(const std::string& name)
     // Set up an instance of 'iface'.
 
     ifa->_pfd = fd;
+    ifa->_rfd = rfd;
+
+    memcpy(&ifa->_rsrc, &lladdr, sizeof(struct sockaddr_ll));
 
     // Eh. Allmulti.
     ifa->_prev_allmulti = ifa->allmulti(1);
@@ -240,6 +250,8 @@ ptr<iface> iface::open_ifd(const std::string& name)
         logger::error() << "iface::open_ifd() failed IPV6_UNICAST_HOPS";
         return ptr<iface>();
     }
+
+    // Set header mode
 
     // Switch to non-blocking mode.
 
@@ -351,7 +363,7 @@ ssize_t iface::write(int fd, const address& daddr, const uint8_t* msg, size_t si
     return len;
 }
 
-ssize_t iface::read_solicit(address& saddr, address& daddr, address& taddr)
+ssize_t iface::read_solicit(address& saddr, address& daddr, address& taddr, hwaddress& raddr)
 {
     struct sockaddr_ll t_saddr;
     uint8_t msg[256];
@@ -359,6 +371,8 @@ ssize_t iface::read_solicit(address& saddr, address& daddr, address& taddr)
 
     if ((len = read(_pfd, (struct sockaddr*)&t_saddr, msg, sizeof(msg))) < 0)
         return -1;
+
+    memcpy(raddr.addr, msg+6, 6);
 
     struct ip6_hdr* ip6h =
           (struct ip6_hdr* )(msg + ETH_HLEN);
@@ -416,7 +430,7 @@ ssize_t iface::write_solicit(const address& taddr)
                  + sizeof(struct nd_opt_hdr) + 6);
 }
 
-ssize_t iface::write_advert(const address& daddr, const address& taddr, bool router)
+ssize_t iface::write_advert(const address& daddr, const address& taddr, bool router, const hwaddress& raddr)
 {
     char buf[128];
 
@@ -442,8 +456,39 @@ ssize_t iface::write_advert(const address& daddr, const address& taddr, bool rou
     logger::debug() << "iface::write_advert() daddr=" << daddr.to_string()
                     << ", taddr=" << taddr.to_string();
 
-    return write(_ifd, daddr, (uint8_t* )buf, sizeof(struct nd_neighbor_advert) +
+    int ret1 = write(_ifd, daddr, (uint8_t* )buf, sizeof(struct nd_neighbor_advert) +
         sizeof(struct nd_opt_hdr) + 6);
+
+
+    int size = sizeof(struct nd_neighbor_advert) +sizeof(struct nd_opt_hdr) + 6;
+
+    
+    char ethbuf[128+14+40];
+    memset(ethbuf, 0, sizeof(ethbuf));
+
+    memcpy(ethbuf+14+40, buf, sizeof(buf));
+
+    memcpy(ethbuf+6, &hwaddr, 6);
+
+    memcpy(ethbuf, raddr.addr, 6);
+    memcpy(ethbuf+12, "\x86\xdd", 2);
+    memcpy(ethbuf+14, "\x60\x00\x00\x00", 4);
+    uint16_t nsize = htons(size);
+    memcpy(ethbuf+18, &nsize, 2);
+    memcpy(ethbuf+20, "\x3a\xff", 2);
+    memcpy(ethbuf+22, &taddr.const_addr(), 16);
+    memcpy(ethbuf+38, &daddr.const_addr(), 16);
+
+    buf[4] |= 0x20;
+
+    memcpy(ethbuf+14+40, buf, sizeof(buf));
+
+    uint16_t cksum = icmp6_checksum(*((struct ip6_hdr *)(&ethbuf[14])), *((struct icmp6_hdr *)(&ethbuf[14+40])), (uint8_t *)ethbuf+14+40+8, size-8);
+    memcpy(ethbuf+14+40+2, &cksum, 2);
+
+    int bytes = sendto(_rfd, ethbuf, 14+40+size, 0, (struct sockaddr *)&_rsrc, sizeof(_rsrc));
+
+    return 0;
 }
 
 ssize_t iface::read_advert(address& saddr, address& taddr)
@@ -562,9 +607,10 @@ int iface::poll_all()
         ptr<iface> ifa = i_it->second;
 
         address saddr, daddr, taddr;
+        hwaddress raddr;
 
         if (is_pfd) {
-            if (ifa->read_solicit(saddr, daddr, taddr) < 0) {
+            if (ifa->read_solicit(saddr, daddr, taddr, raddr) < 0) {
                 logger::error() << "Failed to read from interface '%s'", ifa->_name.c_str();
                 continue;
             }
@@ -574,7 +620,7 @@ int iface::poll_all()
             }
 
             if (ifa->_pr) {
-                ifa->_pr->handle_solicit(saddr, daddr, taddr);
+                ifa->_pr->handle_solicit(saddr, daddr, taddr, raddr);
             }
         } else {
             if (ifa->read_advert(saddr, taddr) < 0) {

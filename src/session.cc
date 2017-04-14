@@ -65,7 +65,7 @@ session::~session()
 }
 
 ptr<session> session::create(const ptr<proxy>& pr, const address& saddr,
-    const address& daddr, const address& taddr)
+    const address& daddr, const address& taddr, const hwaddress& raddr)
 {
     ptr<session> se(new session());
 
@@ -74,13 +74,14 @@ ptr<session> session::create(const ptr<proxy>& pr, const address& saddr,
     se->_saddr = address("::") == saddr ? all_nodes : saddr;
     se->_taddr = taddr;
     se->_daddr = daddr;
+    se->_raddr = raddr;
     se->_ttl   = pr->timeout();
 
     _sessions.push_back(se);
 
     logger::debug()
         << "session::create() pr=" << logger::format("%x", (proxy* )pr) << ", saddr=" << saddr
-        << ", daddr=" << daddr << ", taddr=" << taddr << " =" << logger::format("%x", (session* )se);
+        << ", daddr=" << daddr << ", taddr=" << taddr << ", raddr=FIXME =" << logger::format("%x", (session* )se);
 
     return se;
 }
@@ -107,7 +108,7 @@ void session::send_solicit()
 
 void session::send_advert()
 {
-    _pr->ifa()->write_advert(_saddr, _taddr, _pr->router());
+    _pr->ifa()->write_advert(_saddr, _taddr, _pr->router(), _raddr);
 }
 
 void session::handle_advert()
